@@ -1,0 +1,1568 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="海报换码助手" />
+  <title>每日海报换码助手</title>
+
+  <!-- 加载 Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // 配置 iOS 系统字体与苹果设计规范主题色
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: [
+              '-apple-system',
+              'BlinkMacSystemFont',
+              '"SF Pro Text"',
+              '"PingFang SC"',
+              '"Hiragino Sans GB"',
+              '"Inter"',
+              '"Helvetica Neue"',
+              'sans-serif'
+            ]
+          },
+          colors: {
+            iosBg: '#F5F5F7',
+            iosBlue: '#007AFF',
+            iosBlueActive: '#0062CC',
+            iosGreen: '#34C759',
+            iosText: '#1D1D1F',
+            iosSub: '#86868B',
+            iosSeparator: '#E5E5EA'
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- 加载 jsQR 用于主引擎二维码精准解码定位 -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+</head>
+<body class="bg-iosBg text-iosText font-sans antialiased min-h-screen selection:bg-iosBlue/15 touch-manipulation">
+
+  <!-- 全局隐藏的文件选择器 -->
+  <input id="fixedQrInput" type="file" accept="image/*" class="hidden" />
+  <input id="posterInput" type="file" accept="image/*" class="hidden" />
+
+  <!-- 电脑端拖拽全屏提示浮层 -->
+  <div id="dragOverlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-white/80 backdrop-blur-md transition-opacity p-6">
+    <div class="w-full max-w-[380px] rounded-2xl border-2 border-dashed border-iosBlue bg-iosBlue/5 p-10 text-center">
+      <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-iosBlue/10 text-iosBlue">
+        <svg class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+        </svg>
+      </div>
+      <p class="text-base font-semibold text-iosText">松开鼠标导入图片</p>
+      <p id="dragOverlayHint" class="mt-1 text-xs text-iosSub">将自动识别并替换海报底部二维码</p>
+    </div>
+  </div>
+
+  <!-- 顶部轻提示 Toast（替代原生 alert） -->
+  <div id="toastContainer" class="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+    <div id="toast" class="flex items-center gap-2 rounded-full bg-[#1D1D1F]/90 px-4 py-2.5 text-sm font-medium text-white shadow-lg backdrop-blur-md opacity-0 -translate-y-3 transition-all duration-300 max-w-[92vw]">
+      <span id="toastIcon" class="flex h-4 w-4 shrink-0 items-center justify-center"></span>
+      <span id="toastText" class="truncate"></span>
+    </div>
+  </div>
+
+  <!-- 主容器：单栏移动端优先布局，最大宽度 480px 居中 -->
+  <main class="mx-auto w-full max-w-[480px] px-4 pt-6 pb-12 sm:pt-8">
+
+    <!-- 顶部极简标题区 -->
+    <header class="mb-5 px-1 text-center">
+      <h1 class="text-[22px] font-bold tracking-tight text-iosText">每日海报换码助手</h1>
+      <p class="mt-1 text-[13px] text-iosSub">自动识别底部二维码，一键替换为你的专属码</p>
+    </header>
+
+    <!-- ====================================================== -->
+    <!-- 模块一：固定二维码设置（仅需一次，localStorage 持久化） -->
+    <!-- ====================================================== -->
+    <section id="fixedQrSection" class="mb-4">
+      <!-- 状态 A：尚未设置固定二维码（展开上传区） -->
+      <div id="qrUnsetCard" class="rounded-2xl border border-black/[0.06] bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
+        <div class="mb-3 flex items-center justify-between">
+          <span class="text-[13px] font-semibold text-iosText">第一步 · 固定二维码</span>
+          <span class="rounded-full bg-iosBg px-2.5 py-0.5 text-[11px] font-medium text-iosSub">仅需设置一次</span>
+        </div>
+
+        <!-- 虚线点击上传区 -->
+        <button
+          id="uploadQrAreaBtn"
+          type="button"
+          class="group flex w-full flex-col items-center justify-center rounded-xl border-[1.5px] border-dashed border-[#D2D2D7] bg-[#FBFBFD] px-4 py-7 text-center transition-all hover:border-iosBlue hover:bg-iosBlue/[0.03] active:scale-[0.99]"
+        >
+          <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-iosBlue/10 text-iosBlue transition-transform group-hover:scale-105">
+            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 7V5a2 2 0 012-2h2m10 0h2a2 2 0 012 2v2m0 10v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2M7 7h3v3H7V7zm7 0h3v3h-3V7zm-7 7h3v3H7v-3zm7 3h3v-3h-3v3z" />
+            </svg>
+          </div>
+          <span class="text-[15px] font-semibold text-iosText">上传你的固定二维码（仅需设置一次）</span>
+          <span class="mt-1 text-xs text-iosSub">将保存在本机浏览器中，下次打开自动记住</span>
+        </button>
+
+        <!-- 自动裁剪多余白边开关 -->
+        <div class="mt-3.5 flex items-center justify-between border-t border-black/[0.05] pt-3.5">
+          <div class="pr-3">
+            <p class="text-[14px] font-medium text-iosText">自动裁剪多余白边</p>
+            <p class="text-[12px] text-iosSub">去除四周纯白边距，使替换后大小与原码一致</p>
+          </div>
+          <button
+            id="autoCropToggleUnset"
+            type="button"
+            role="switch"
+            aria-checked="true"
+            aria-label="自动裁剪多余白边"
+            class="relative inline-flex h-[30px] w-[50px] shrink-0 cursor-pointer items-center rounded-full bg-iosGreen p-0.5 transition-colors duration-200 focus:outline-none"
+          >
+            <span class="inline-block h-[26px] w-[26px] translate-x-[20px] transform rounded-full bg-white shadow-[0_2px_4px_rgba(0,0,0,0.18)] transition-transform duration-200"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 状态 B：已设置固定二维码（折叠为紧凑精致的状态条） -->
+      <div id="qrSetBar" class="hidden items-center justify-between gap-3 rounded-2xl border border-black/[0.06] bg-white px-3.5 py-3 shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
+        <div class="flex min-w-0 items-center gap-3">
+          <!-- 固定二维码缩略图 -->
+          <div class="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-black/10 bg-white p-1">
+            <img id="qrThumbImg" src="" alt="固定二维码缩略图" class="h-full w-full object-contain" />
+          </div>
+          <!-- 就绪状态文案 -->
+          <div class="min-w-0">
+            <div class="flex items-center gap-1.5">
+              <span class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-iosGreen text-white">
+                <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </span>
+              <p class="truncate text-[14px] font-semibold text-iosText">固定二维码已就绪</p>
+            </div>
+            <p class="mt-0.5 truncate text-[12px] text-iosSub">已本地记住 · 每天直接选图即可</p>
+          </div>
+        </div>
+
+        <!-- 右侧紧凑操作按钮：裁剪白边 + 更换 -->
+        <div class="flex shrink-0 items-center gap-1.5">
+          <button
+            id="compactCropBtn"
+            type="button"
+            class="flex items-center gap-1 rounded-xl border border-iosGreen/25 bg-iosGreen/10 px-2.5 py-1.5 text-[12px] font-medium text-[#248A3D] transition-all active:scale-95"
+            title="切换是否自动裁剪固定二维码白边"
+          >
+            <span id="compactCropDot" class="h-1.5 w-1.5 rounded-full bg-iosGreen"></span>
+            <span>裁剪白边</span>
+          </button>
+          <button
+            id="changeQrBtn"
+            type="button"
+            class="rounded-xl bg-iosBg px-2.5 py-1.5 text-[12px] font-medium text-iosText transition-all hover:bg-[#EAEAEF] active:scale-95"
+          >
+            更换
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================== -->
+    <!-- 模块二：每日一键替换主操作区                           -->
+    <!-- ====================================================== -->
+    <section id="posterUploadSection" class="mb-4">
+      <div class="rounded-2xl border border-black/[0.06] bg-white p-5 shadow-[0_2px_12px_rgba(0,0,0,0.04)] text-center">
+        <div class="mx-auto mb-3.5 flex h-14 w-14 items-center justify-center rounded-2xl bg-iosBlue/[0.08] text-iosBlue">
+          <svg class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        </div>
+        <h2 class="text-[16px] font-semibold text-iosText">每日一键换码</h2>
+        <p class="mt-1 mb-5 text-[13px] text-iosSub">选图后自动定位底部二维码并无痕替换</p>
+
+        <button
+          id="selectPosterBtn"
+          type="button"
+          class="flex w-full items-center justify-center gap-2 rounded-2xl bg-iosBlue px-5 py-4 text-[16px] font-semibold text-white shadow-[0_4px_14px_rgba(0,122,255,0.28)] transition-all hover:bg-iosBlueActive active:scale-[0.98]"
+        >
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          <span>选择今日海报</span>
+        </button>
+
+        <p class="mt-3 text-[12px] text-iosSub">支持手机相册选图 · 电脑端可拖拽或 Ctrl+V 粘贴</p>
+      </div>
+    </section>
+
+    <!-- 处理中加载卡片 -->
+    <section id="processingSection" class="mb-4 hidden">
+      <div class="flex flex-col items-center justify-center rounded-2xl border border-black/[0.06] bg-white px-5 py-12 shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
+        <div class="h-8 w-8 animate-spin rounded-full border-[3px] border-iosSeparator border-t-iosBlue"></div>
+        <p class="mt-3 text-[14px] font-medium text-iosText">正在智能识别二维码并高清合成...</p>
+      </div>
+    </section>
+
+    <!-- ====================================================== -->
+    <!-- 模块三：结果展示、便捷保存与可折叠微调面板             -->
+    <!-- ====================================================== -->
+    <section id="resultSection" class="hidden space-y-4">
+
+      <!-- 合成结果预览与操作卡片 -->
+      <div class="rounded-2xl border border-black/[0.06] bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
+        <!-- 识别状态轻提示栏 -->
+        <div id="statusBanner" class="mb-3.5 flex items-center justify-between gap-2 rounded-xl bg-iosGreen/[0.10] px-3.5 py-2.5 text-[13px] font-medium text-[#1D7A34]">
+          <div class="flex items-center gap-2 min-w-0">
+            <span id="statusDot" class="h-2 w-2 shrink-0 rounded-full bg-iosGreen"></span>
+            <span id="statusText" class="truncate">已精准识别二维码并完成替换</span>
+          </div>
+          <span id="resolutionBadge" class="shrink-0 rounded-md bg-white/70 px-1.5 py-0.5 text-[11px] font-normal text-iosSub"></span>
+        </div>
+
+        <!-- 真实 img 渲染，方便微信与 iOS Safari 直接长按保存或转发 -->
+        <div class="overflow-hidden rounded-xl border border-black/[0.06] bg-[#FAFAFC]">
+          <img
+            id="resultImage"
+            src=""
+            alt="替换二维码后的今日海报"
+            class="mx-auto block h-auto max-h-[68vh] w-full object-contain select-auto"
+          />
+        </div>
+
+        <!-- 长按保存引导文案 -->
+        <p class="mt-2.5 text-center text-[12px] text-iosSub">
+          长按上方图片可直接保存或转发
+        </p>
+
+        <!-- 底部双大按钮：保存/分享 + 换下一张 -->
+        <div class="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          <button
+            id="saveShareBtn"
+            type="button"
+            class="flex items-center justify-center gap-2 rounded-2xl bg-iosBlue px-5 py-3.5 text-[15px] font-semibold text-white shadow-[0_4px_12px_rgba(0,122,255,0.25)] transition-all hover:bg-iosBlueActive active:scale-[0.98]"
+          >
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            <span>保存 / 分享图片</span>
+          </button>
+
+          <button
+            id="nextPosterBtn"
+            type="button"
+            class="flex items-center justify-center gap-2 rounded-2xl bg-iosBg px-5 py-3.5 text-[15px] font-semibold text-iosText transition-all hover:bg-[#EAEAEF] active:scale-[0.98]"
+          >
+            <svg class="h-5 w-5 text-iosSub" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span>换下一张</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 可折叠「微调位置与大小」面板（默认收起） -->
+      <div class="overflow-hidden rounded-2xl border border-black/[0.06] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
+        <button
+          id="toggleAdjustBtn"
+          type="button"
+          aria-expanded="false"
+          class="flex w-full items-center justify-between px-4 py-3.5 text-left transition-colors hover:bg-[#FAFAFC] active:bg-[#F2F2F7]"
+        >
+          <div class="flex items-center gap-2.5">
+            <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-iosBg text-iosSub">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+              </svg>
+            </span>
+            <span class="text-[14px] font-semibold text-iosText">微调位置与大小</span>
+          </div>
+          <svg id="adjustChevron" class="h-4 w-4 text-iosSub transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        <!-- 滑块调节主体 -->
+        <div id="adjustPanel" class="hidden border-t border-black/[0.05] px-4 pt-4 pb-4 space-y-4">
+          <!-- 水平位置 (X) -->
+          <div>
+            <div class="mb-2 flex items-center justify-between text-[13px]">
+              <span class="font-medium text-iosText">水平位置 (X)</span>
+              <span id="valDx" class="rounded-md bg-iosBg px-2 py-0.5 font-mono text-[12px] text-iosSub">0 px</span>
+            </div>
+            <input
+              id="sliderDx"
+              type="range"
+              min="-150"
+              max="150"
+              step="1"
+              value="0"
+              class="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-iosSeparator accent-iosBlue [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_1px_5px_rgba(0,0,0,0.24),0_0_0_0.5px_rgba(0,0,0,0.06)]"
+            />
+          </div>
+
+          <!-- 垂直位置 (Y) -->
+          <div>
+            <div class="mb-2 flex items-center justify-between text-[13px]">
+              <span class="font-medium text-iosText">垂直位置 (Y)</span>
+              <span id="valDy" class="rounded-md bg-iosBg px-2 py-0.5 font-mono text-[12px] text-iosSub">0 px</span>
+            </div>
+            <input
+              id="sliderDy"
+              type="range"
+              min="-150"
+              max="150"
+              step="1"
+              value="0"
+              class="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-iosSeparator accent-iosBlue [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_1px_5px_rgba(0,0,0,0.24),0_0_0_0.5px_rgba(0,0,0,0.06)]"
+            />
+          </div>
+
+          <!-- 二维码大小 (%) -->
+          <div>
+            <div class="mb-2 flex items-center justify-between text-[13px]">
+              <span class="font-medium text-iosText">二维码大小 (%)</span>
+              <span id="valScale" class="rounded-md bg-iosBg px-2 py-0.5 font-mono text-[12px] text-iosSub">100%</span>
+            </div>
+            <input
+              id="sliderScale"
+              type="range"
+              min="60"
+              max="150"
+              step="1"
+              value="100"
+              class="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-iosSeparator accent-iosBlue [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_1px_5px_rgba(0,0,0,0.24),0_0_0_0.5px_rgba(0,0,0,0.06)]"
+            />
+          </div>
+
+          <!-- 白边擦除范围 (px) -->
+          <div>
+            <div class="mb-2 flex items-center justify-between text-[13px]">
+              <span class="font-medium text-iosText">白边擦除范围 (px)</span>
+              <span id="valPad" class="rounded-md bg-iosBg px-2 py-0.5 font-mono text-[12px] text-iosSub">6 px</span>
+            </div>
+            <input
+              id="sliderPad"
+              type="range"
+              min="0"
+              max="36"
+              step="1"
+              value="6"
+              class="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-iosSeparator accent-iosBlue [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_1px_5px_rgba(0,0,0,0.24),0_0_0_0.5px_rgba(0,0,0,0.06)]"
+            />
+          </div>
+
+          <!-- 恢复自动定位按钮 -->
+          <div class="pt-1">
+            <button
+              id="resetAdjustBtn"
+              type="button"
+              class="w-full rounded-xl bg-iosBg py-2.5 text-[13px] font-semibold text-iosBlue transition-colors hover:bg-[#EAEAEF] active:scale-[0.99]"
+            >
+              恢复自动定位
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 底部极简隐私说明 -->
+    <footer class="mt-8 text-center text-[11px] text-iosSub/80">
+      所有图片均在设备本地处理，不会上传至任何服务器
+    </footer>
+  </main>
+
+  <script>
+    /**
+     * =========================================================================
+     * 每日海报换码助手 - 核心逻辑
+     * 功能：
+     * 1. localStorage 持久化固定二维码及「自动裁剪白边」偏好
+     * 2. 双引擎定位：jsQR 多尺度主检测 + 暗像素形态学/连通域视觉兜底检测
+     * 3. 原分辨率离屏无痕合成（四周背景色自动采样 + 外扩擦除 + 等比居中贴合）
+     * 4. 原生 Web Share API 分享/保存，支持降级下载、长按保存与实时微调
+     * =========================================================================
+     */
+    (function () {
+      'use strict';
+
+      // -------------------- 常量与持久化键名 --------------------
+      const STORAGE_KEY_QR = 'daily_poster_fixed_qr_v1';
+      const STORAGE_KEY_CROP = 'daily_poster_auto_crop_v1';
+
+      // -------------------- 应用核心状态 --------------------
+      const state = {
+        fixedQrRawDataUrl: null,   // 用户上传并规范化后的原始固定二维码 DataURL
+        autoCrop: true,            // 是否自动裁剪固定二维码四周白边
+        activeQrCanvas: null,      // 处理完成（已裁剪或原图）可直接用于绘制的二维码 Canvas
+        posterImg: null,           // 当前导入的今日海报 HTMLImageElement
+        detected: null,            // 自动定位结果：{ cx, cy, size, bgColor, engine }
+        adjust: {
+          dx: 0,                   // 水平微调 (px)
+          dy: 0,                   // 垂直微调 (px)
+          scalePct: 100,           // 大小缩放 (%)
+          padPx: 6                 // 白边擦除外扩范围 (px)
+        },
+        outputCanvas: null,        // 最新合成的原始分辨率离屏 Canvas
+        isAdjustOpen: false,       // 微调面板是否展开
+        renderRafId: null,         // 滑块防抖帧 ID
+        hdSyncTimer: null          // 滑块停止后回写无损 PNG 的定时器
+      };
+
+      // -------------------- DOM 元素引用 --------------------
+      const el = {
+        fixedQrInput: document.getElementById('fixedQrInput'),
+        posterInput: document.getElementById('posterInput'),
+        dragOverlay: document.getElementById('dragOverlay'),
+        dragOverlayHint: document.getElementById('dragOverlayHint'),
+
+        // Toast
+        toast: document.getElementById('toast'),
+        toastIcon: document.getElementById('toastIcon'),
+        toastText: document.getElementById('toastText'),
+
+        // 模块一：固定二维码
+        qrUnsetCard: document.getElementById('qrUnsetCard'),
+        uploadQrAreaBtn: document.getElementById('uploadQrAreaBtn'),
+        autoCropToggleUnset: document.getElementById('autoCropToggleUnset'),
+        qrSetBar: document.getElementById('qrSetBar'),
+        qrThumbImg: document.getElementById('qrThumbImg'),
+        compactCropBtn: document.getElementById('compactCropBtn'),
+        compactCropDot: document.getElementById('compactCropDot'),
+        changeQrBtn: document.getElementById('changeQrBtn'),
+
+        // 模块二：每日一键替换
+        posterUploadSection: document.getElementById('posterUploadSection'),
+        selectPosterBtn: document.getElementById('selectPosterBtn'),
+        processingSection: document.getElementById('processingSection'),
+
+        // 模块三：结果与保存
+        resultSection: document.getElementById('resultSection'),
+        statusBanner: document.getElementById('statusBanner'),
+        statusDot: document.getElementById('statusDot'),
+        statusText: document.getElementById('statusText'),
+        resolutionBadge: document.getElementById('resolutionBadge'),
+        resultImage: document.getElementById('resultImage'),
+        saveShareBtn: document.getElementById('saveShareBtn'),
+        nextPosterBtn: document.getElementById('nextPosterBtn'),
+
+        // 微调面板
+        toggleAdjustBtn: document.getElementById('toggleAdjustBtn'),
+        adjustChevron: document.getElementById('adjustChevron'),
+        adjustPanel: document.getElementById('adjustPanel'),
+        sliderDx: document.getElementById('sliderDx'),
+        sliderDy: document.getElementById('sliderDy'),
+        sliderScale: document.getElementById('sliderScale'),
+        sliderPad: document.getElementById('sliderPad'),
+        valDx: document.getElementById('valDx'),
+        valDy: document.getElementById('valDy'),
+        valScale: document.getElementById('valScale'),
+        valPad: document.getElementById('valPad'),
+        resetAdjustBtn: document.getElementById('resetAdjustBtn')
+      };
+
+      // =========================================================================
+      // 一、基础工具函数（Toast、图片加载、文件读取）
+      // =========================================================================
+
+      let toastTimer = null;
+      /**
+       * 显示顶部 iOS 风格轻提示（替代原生 alert）
+       * @param {string} message 提示文案
+       * @param {'success'|'info'|'warn'} type 图标类型
+       */
+      function showToast(message, type = 'info') {
+        clearTimeout(toastTimer);
+        el.toastText.textContent = message;
+
+        if (type === 'success') {
+          el.toastIcon.innerHTML = '<svg class="h-4 w-4 text-iosGreen" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>';
+        } else if (type === 'warn') {
+          el.toastIcon.innerHTML = '<svg class="h-4 w-4 text-[#FF9F0A]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M12 3a9 9 0 100 18 9 9 0 000-18z" /></svg>';
+        } else {
+          el.toastIcon.innerHTML = '<svg class="h-4 w-4 text-iosBlue" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" /></svg>';
+        }
+
+        el.toast.classList.remove('opacity-0', '-translate-y-3');
+        el.toast.classList.add('opacity-100', 'translate-y-0');
+
+        toastTimer = setTimeout(() => {
+          el.toast.classList.remove('opacity-100', 'translate-y-0');
+          el.toast.classList.add('opacity-0', '-translate-y-3');
+        }, 2600);
+      }
+
+      /**
+       * 将 DataURL 或 ObjectURL 加载为 HTMLImageElement
+       */
+      function loadImage(src) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error('图片加载失败，请确认文件格式正确'));
+          img.src = src;
+        });
+      }
+
+      /**
+       * 将 File/Blob 读取为 DataURL
+       */
+      function readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('读取图片文件失败'));
+          reader.readAsDataURL(file);
+        });
+      }
+
+      // =========================================================================
+      // 二、固定二维码管理（持久化 + 自动裁剪纯白边缘）
+      // =========================================================================
+
+      /**
+       * 对固定二维码进行尺寸规范化（最大边限制 900px），防止超大原图撑爆 localStorage
+       */
+      function normalizeFixedQrToDataUrl(img) {
+        const MAX_DIM = 900;
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        if (w > MAX_DIM || h > MAX_DIM) {
+          const ratio = Math.min(MAX_DIM / w, MAX_DIM / h);
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, w, h);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, w, h);
+        return canvas.toDataURL('image/png');
+      }
+
+      /**
+       * 自动检测并裁剪固定二维码四周的纯白边缘
+       * 目的：确保贴回海报时二维码视觉占比与原图完全一致
+       */
+      function buildActiveQrCanvas(img, shouldCrop) {
+        const w = img.naturalWidth;
+        const h = img.naturalHeight;
+        const srcCanvas = document.createElement('canvas');
+        srcCanvas.width = w;
+        srcCanvas.height = h;
+        const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
+        srcCtx.fillStyle = '#FFFFFF';
+        srcCtx.fillRect(0, 0, w, h);
+        srcCtx.drawImage(img, 0, 0);
+
+        if (!shouldCrop) {
+          return srcCanvas;
+        }
+
+        const { data } = srcCtx.getImageData(0, 0, w, h);
+        let minX = w, minY = h, maxX = -1, maxY = -1;
+        // 阈值 238 兼容微信/相册轻度压缩产生的灰白噪点
+        const WHITE_THRESHOLD = 238;
+
+        for (let y = 0; y < h; y++) {
+          const rowOffset = y * w * 4;
+          for (let x = 0; x < w; x++) {
+            const idx = rowOffset + x * 4;
+            const a = data[idx + 3];
+            if (a > 20) {
+              const r = data[idx];
+              const g = data[idx + 1];
+              const b = data[idx + 2];
+              if (r < WHITE_THRESHOLD || g < WHITE_THRESHOLD || b < WHITE_THRESHOLD) {
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+              }
+            }
+          }
+        }
+
+        // 若未检测到有效深色像素或裁剪区域异常小，则返回原图
+        if (maxX <= minX || maxY <= minY || (maxX - minX) < 16 || (maxY - minY) < 16) {
+          return srcCanvas;
+        }
+
+        const cropW = maxX - minX + 1;
+        const cropH = maxY - minY + 1;
+        const croppedCanvas = document.createElement('canvas');
+        croppedCanvas.width = cropW;
+        croppedCanvas.height = cropH;
+        const croppedCtx = croppedCanvas.getContext('2d');
+        croppedCtx.drawImage(srcCanvas, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
+        return croppedCanvas;
+      }
+
+      /**
+       * 刷新固定二维码 UI（未设置卡片 vs 已设置紧凑状态条）
+       */
+      function updateFixedQrUI() {
+        // 同步未设置状态下的 iOS 开关视觉
+        const unsetKnob = el.autoCropToggleUnset.querySelector('span');
+        el.autoCropToggleUnset.setAttribute('aria-checked', String(state.autoCrop));
+        if (state.autoCrop) {
+          el.autoCropToggleUnset.classList.replace('bg-[#D1D1D6]', 'bg-iosGreen');
+          el.autoCropToggleUnset.classList.add('bg-iosGreen');
+          unsetKnob.classList.add('translate-x-[20px]');
+          unsetKnob.classList.remove('translate-x-0');
+        } else {
+          el.autoCropToggleUnset.classList.remove('bg-iosGreen');
+          el.autoCropToggleUnset.classList.add('bg-[#D1D1D6]');
+          unsetKnob.classList.remove('translate-x-[20px]');
+          unsetKnob.classList.add('translate-x-0');
+        }
+
+        // 同步已设置紧凑条里的「裁剪白边」小按钮视觉
+        if (state.autoCrop) {
+          el.compactCropBtn.className = 'flex items-center gap-1 rounded-xl border border-iosGreen/25 bg-iosGreen/10 px-2.5 py-1.5 text-[12px] font-medium text-[#248A3D] transition-all active:scale-95';
+          el.compactCropDot.className = 'h-1.5 w-1.5 rounded-full bg-iosGreen';
+        } else {
+          el.compactCropBtn.className = 'flex items-center gap-1 rounded-xl border border-black/[0.08] bg-iosBg px-2.5 py-1.5 text-[12px] font-medium text-iosSub transition-all active:scale-95';
+          el.compactCropDot.className = 'h-1.5 w-1.5 rounded-full bg-[#C7C7CC]';
+        }
+
+        // 切换模块一展开/紧凑折叠形态
+        if (state.activeQrCanvas) {
+          el.qrUnsetCard.classList.add('hidden');
+          el.qrSetBar.classList.remove('hidden');
+          el.qrSetBar.classList.add('flex');
+          el.qrThumbImg.src = state.activeQrCanvas.toDataURL('image/png');
+        } else {
+          el.qrUnsetCard.classList.remove('hidden');
+          el.qrSetBar.classList.add('hidden');
+          el.qrSetBar.classList.remove('flex');
+        }
+      }
+
+      /**
+       * 根据当前 raw DataURL 与 autoCrop 开关重新生成可用二维码 Canvas
+       */
+      async function rebuildActiveQr() {
+        if (!state.fixedQrRawDataUrl) {
+          state.activeQrCanvas = null;
+          updateFixedQrUI();
+          return;
+        }
+        try {
+          const img = await loadImage(state.fixedQrRawDataUrl);
+          state.activeQrCanvas = buildActiveQrCanvas(img, state.autoCrop);
+          updateFixedQrUI();
+          // 若当前已有正在展示的海报，立刻实时刷新合成结果
+          if (state.posterImg && state.detected) {
+            renderComposite(false);
+          }
+        } catch (err) {
+          console.error('重建固定二维码失败:', err);
+          showToast('固定二维码加载异常，请重新上传', 'warn');
+        }
+      }
+
+      /**
+       * 处理用户新上传的固定二维码文件
+       */
+      async function handleFixedQrFile(file) {
+        if (!file || !file.type.startsWith('image/')) {
+          showToast('请选择有效的图片文件', 'warn');
+          return;
+        }
+        try {
+          const rawUrl = await readFileAsDataUrl(file);
+          const img = await loadImage(rawUrl);
+          const normalizedDataUrl = normalizeFixedQrToDataUrl(img);
+
+          state.fixedQrRawDataUrl = normalizedDataUrl;
+          try {
+            localStorage.setItem(STORAGE_KEY_QR, normalizedDataUrl);
+            localStorage.setItem(STORAGE_KEY_CROP, state.autoCrop ? '1' : '0');
+          } catch (storageErr) {
+            console.warn('localStorage 写入受限:', storageErr);
+            showToast('二维码已加载，但浏览器隐私模式无法长期保存', 'warn');
+          }
+
+          await rebuildActiveQr();
+          showToast('固定二维码已保存，下次打开自动记住', 'success');
+        } catch (err) {
+          console.error(err);
+          showToast('读取二维码失败，请换一张图片重试', 'warn');
+        }
+      }
+
+      /**
+       * 切换「自动裁剪多余白边」状态
+       */
+      async function toggleAutoCrop() {
+        state.autoCrop = !state.autoCrop;
+        try {
+          localStorage.setItem(STORAGE_KEY_CROP, state.autoCrop ? '1' : '0');
+        } catch (e) {
+          // 忽略无痕模式写入限制
+        }
+        updateFixedQrUI();
+        if (state.fixedQrRawDataUrl) {
+          await rebuildActiveQr();
+          showToast(state.autoCrop ? '已开启自动裁剪白边' : '已关闭裁剪，使用原图边距', 'info');
+        }
+      }
+
+      // =========================================================================
+      // 三、双引擎二维码自动定位算法（核心）
+      // =========================================================================
+
+      /**
+       * 引擎一（主检测）：jsQR 多尺度精准解码
+       * 优先扫描海报下半部分（底部 55% 区域），并对高/低分辨率图片自动进行多尺度缩放识别
+       */
+      function detectWithJsQR(posterImg) {
+        if (typeof window.jsQR !== 'function') {
+          return null;
+        }
+
+        const origW = posterImg.naturalWidth;
+        const origH = posterImg.naturalHeight;
+
+        // 依次尝试：底部 55% 区域（优先） -> 全图兜底
+        const regions = [
+          { yRatio: 0.45, hRatio: 0.55 },
+          { yRatio: 0.0, hRatio: 1.0 }
+        ];
+
+        // 针对不同分辨率海报构造多组扫描目标宽度（覆盖微信压缩小图与 4K 超清图）
+        const candidateWidths = [];
+        if (origW <= 1200) candidateWidths.push(origW);
+        [900, 650, 1280, 480].forEach((tw) => {
+          if (Math.abs(tw - origW) > 60 && !candidateWidths.includes(tw)) {
+            candidateWidths.push(tw);
+          }
+        });
+
+        const scanCanvas = document.createElement('canvas');
+        const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
+
+        for (const region of regions) {
+          const roiY = Math.floor(origH * region.yRatio);
+          const roiH = Math.max(1, origH - roiY);
+
+          for (const targetW of candidateWidths) {
+            const scale = targetW / origW;
+            const scanW = Math.max(1, Math.round(origW * scale));
+            const scanH = Math.max(1, Math.round(roiH * scale));
+
+            scanCanvas.width = scanW;
+            scanCanvas.height = scanH;
+            scanCtx.imageSmoothingEnabled = true;
+            scanCtx.imageSmoothingQuality = 'high';
+            scanCtx.drawImage(posterImg, 0, roiY, origW, roiH, 0, 0, scanW, scanH);
+
+            try {
+              const imgData = scanCtx.getImageData(0, 0, scanW, scanH);
+              const code = window.jsQR(imgData.data, scanW, scanH, {
+                inversionAttempts: 'dontInvert'
+              });
+
+              if (code && code.location) {
+                const pts = [
+                  code.location.topLeftCorner,
+                  code.location.topRightCorner,
+                  code.location.bottomLeftCorner,
+                  code.location.bottomRightCorner
+                ];
+
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                for (const p of pts) {
+                  const ox = p.x / scale;
+                  const oy = roiY + p.y / scale;
+                  if (ox < minX) minX = ox;
+                  if (ox > maxX) maxX = ox;
+                  if (oy < minY) minY = oy;
+                  if (oy > maxY) maxY = oy;
+                }
+
+                const bw = maxX - minX;
+                const bh = maxY - minY;
+                // 合法性过滤：避免误判极小噪点
+                if (bw >= origW * 0.06 && bh >= origW * 0.06) {
+                  const size = Math.max(bw, bh);
+                  return {
+                    cx: (minX + maxX) / 2,
+                    cy: (minY + maxY) / 2,
+                    size,
+                    engine: 'jsQR'
+                  };
+                }
+              }
+            } catch (err) {
+              console.warn('jsQR 单尺度尝试失败:', err);
+            }
+          }
+        }
+
+        return null;
+      }
+
+      /**
+       * 引擎二（兜底视觉检测）：暗像素形态学膨胀 + 连通区域分析
+       * 专门应对中心带 Logo 或微信高压缩模糊导致 jsQR 无法解码的海报二维码
+       * 扫描范围：海报中下方 55% ~ 92% 高度区间
+       */
+      function detectWithVisualFallback(posterImg) {
+        const origW = posterImg.naturalWidth;
+        const origH = posterImg.naturalHeight;
+
+        const roiYStart = Math.floor(origH * 0.55);
+        const roiYEnd = Math.floor(origH * 0.92);
+        const roiOrigH = Math.max(1, roiYEnd - roiYStart);
+
+        // 归一化到 400px 宽的分析画布，保证运算毫秒级完成且形态学半径跨分辨率一致
+        const workW = 400;
+        const scale = workW / origW;
+        const workH = Math.max(1, Math.round(roiOrigH * scale));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = workW;
+        canvas.height = workH;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(posterImg, 0, roiYStart, origW, roiOrigH, 0, 0, workW, workH);
+
+        const { data } = ctx.getImageData(0, 0, workW, workH);
+        const totalPixels = workW * workH;
+
+        // 1. 转灰度并估算背景亮度（取高位亮度近似值，适配纯白与淡灰底色）
+        const gray = new Uint8Array(totalPixels);
+        const hist = new Uint32Array(256);
+        for (let i = 0; i < totalPixels; i++) {
+          const p = i * 4;
+          const lum = (data[p] * 77 + data[p + 1] * 150 + data[p + 2] * 29) >> 8;
+          gray[i] = lum;
+          hist[lum]++;
+        }
+
+        // 取 85% 分位亮度作为背景基准亮度
+        let acc = 0;
+        let bgLum = 250;
+        const targetCount = totalPixels * 0.85;
+        for (let l = 0; l < 256; l++) {
+          acc += hist[l];
+          if (acc >= targetCount) {
+            bgLum = l;
+            break;
+          }
+        }
+        const darkThreshold = Math.min(205, Math.max(130, bgLum - 52));
+
+        // 构建原始暗像素二值图（1 = 暗像素，0 = 背景）
+        const binary = new Uint8Array(totalPixels);
+        for (let i = 0; i < totalPixels; i++) {
+          binary[i] = gray[i] < darkThreshold ? 1 : 0;
+        }
+
+        // 2. 尝试多组膨胀半径将二维码离散黑块连通为整体，同时避免与上下文字粘连
+        const radii = [3, 4, 2];
+        let bestCandidate = null;
+
+        for (const radius of radii) {
+          // 可分离式盒状膨胀（先水平再垂直，复杂度 O(W*H) 极快）
+          const tempH = new Uint8Array(totalPixels);
+          for (let y = 0; y < workH; y++) {
+            const row = y * workW;
+            let count = 0;
+            for (let x = 0; x <= Math.min(radius, workW - 1); x++) {
+              count += binary[row + x];
+            }
+            for (let x = 0; x < workW; x++) {
+              if (count > 0) tempH[row + x] = 1;
+              const removeX = x - radius;
+              const addX = x + radius + 1;
+              if (removeX >= 0) count -= binary[row + removeX];
+              if (addX < workW) count += binary[row + addX];
+            }
+          }
+
+          const dilated = new Uint8Array(totalPixels);
+          for (let x = 0; x < workW; x++) {
+            let count = 0;
+            for (let y = 0; y <= Math.min(radius, workH - 1); y++) {
+              count += tempH[y * workW + x];
+            }
+            for (let y = 0; y < workH; y++) {
+              if (count > 0) dilated[y * workW + x] = 1;
+              const removeY = y - radius;
+              const addY = y + radius + 1;
+              if (removeY >= 0) count -= tempH[removeY * workW + x];
+              if (addY < workH) count += tempH[addY * workW + x];
+            }
+          }
+
+          // 3. BFS 连通区域标记
+          const visited = new Uint8Array(totalPixels);
+          const queue = new Int32Array(totalPixels);
+
+          for (let i = 0; i < totalPixels; i++) {
+            if (dilated[i] === 0 || visited[i] === 1) continue;
+
+            let head = 0;
+            let tail = 0;
+            queue[tail++] = i;
+            visited[i] = 1;
+
+            let minX = workW, maxX = 0, minY = workH, maxY = 0;
+
+            while (head < tail) {
+              const cur = queue[head++];
+              const cx = cur % workW;
+              const cy = (cur - cx) / workW;
+
+              if (cx < minX) minX = cx;
+              if (cx > maxX) maxX = cx;
+              if (cy < minY) minY = cy;
+              if (cy > maxY) maxY = cy;
+
+              // 四邻域扩展
+              if (cx > 0 && dilated[cur - 1] && !visited[cur - 1]) {
+                visited[cur - 1] = 1;
+                queue[tail++] = cur - 1;
+              }
+              if (cx < workW - 1 && dilated[cur + 1] && !visited[cur + 1]) {
+                visited[cur + 1] = 1;
+                queue[tail++] = cur + 1;
+              }
+              if (cy > 0 && dilated[cur - workW] && !visited[cur - workW]) {
+                visited[cur - workW] = 1;
+                queue[tail++] = cur - workW;
+              }
+              if (cy < workH - 1 && dilated[cur + workW] && !visited[cur + workW]) {
+                visited[cur + workW] = 1;
+                queue[tail++] = cur + workW;
+              }
+            }
+
+            // 还原膨胀边界，在原始二值图内重新收紧精确外接矩形
+            const searchMinX = Math.max(0, minX);
+            const searchMaxX = Math.min(workW - 1, maxX);
+            const searchMinY = Math.max(0, minY);
+            const searchMaxY = Math.min(workH - 1, maxY);
+
+            let tMinX = workW, tMaxX = -1, tMinY = workH, tMaxY = -1;
+            let darkPixels = 0;
+            let transitions = 0;
+
+            for (let y = searchMinY; y <= searchMaxY; y++) {
+              const row = y * workW;
+              for (let x = searchMinX; x <= searchMaxX; x++) {
+                const v = binary[row + x];
+                if (v) {
+                  darkPixels++;
+                  if (x < tMinX) tMinX = x;
+                  if (x > tMaxX) tMaxX = x;
+                  if (y < tMinY) tMinY = y;
+                  if (y > tMaxY) tMaxY = y;
+                }
+                if (x > searchMinX && v !== binary[row + x - 1]) transitions++;
+                if (y > searchMinY && v !== binary[row - workW + x]) transitions++;
+              }
+            }
+
+            if (tMaxX <= tMinX || tMaxY <= tMinY) continue;
+
+            const bw = tMaxX - tMinX + 1;
+            const bh = tMaxY - tMinY + 1;
+            const aspect = bw / bh;
+
+            // 尺寸约束：宽度与高度在海报宽度的 10% ~ 55% 之间
+            if (bw < workW * 0.10 || bw > workW * 0.55) continue;
+            if (bh < workW * 0.10 || bh > workW * 0.55) continue;
+
+            // 近似正方形过滤：宽高比 0.8 ~ 1.25
+            if (aspect < 0.8 || aspect > 1.25) continue;
+
+            const boxArea = bw * bh;
+            const darkRatio = darkPixels / boxArea;
+            // 二维码暗像素填充率通常位于 0.18 ~ 0.78 之间
+            if (darkRatio < 0.18 || darkRatio > 0.78) continue;
+
+            // 高频黑白跳变密度：二维码最显著的纹理特征
+            const transitionDensity = transitions / (boxArea * 2);
+            if (transitionDensity < 0.08) continue;
+
+            // 检验二维码三大定位角（左上、右上、左下）是否有足够暗像素
+            const cornerSize = Math.max(4, Math.floor(Math.min(bw, bh) * 0.24));
+            const cornerDensity = (ox, oy) => {
+              let cnt = 0;
+              for (let yy = oy; yy < oy + cornerSize; yy++) {
+                const r = yy * workW;
+                for (let xx = ox; xx < ox + cornerSize; xx++) {
+                  cnt += binary[r + xx];
+                }
+              }
+              return cnt / (cornerSize * cornerSize);
+            };
+            const cTL = cornerDensity(tMinX, tMinY);
+            const cTR = cornerDensity(tMaxX - cornerSize + 1, tMinY);
+            const cBL = cornerDensity(tMinX, tMaxY - cornerSize + 1);
+            const cornerBonus = (cTL > 0.22 && cTR > 0.22 && cBL > 0.22) ? 1.5 : 0.7;
+
+            // 综合置信度打分：方正度 + 跳变纹理 + 定位角 + 适度居中加权
+            const squareScore = 1 - Math.abs(1 - aspect);
+            const centerOffset = Math.abs(((tMinX + tMaxX) / 2) / workW - 0.5);
+            const centerScore = 1 - centerOffset * 0.6;
+            const score = (squareScore * 2.0 + Math.min(transitionDensity * 4, 1.5) + centerScore * 0.8) * cornerBonus;
+
+            if (!bestCandidate || score > bestCandidate.score) {
+              bestCandidate = {
+                score,
+                minX: tMinX / scale,
+                maxX: (tMaxX + 1) / scale,
+                minY: roiYStart + tMinY / scale,
+                maxY: roiYStart + (tMaxY + 1) / scale
+              };
+            }
+          }
+        }
+
+        if (!bestCandidate) {
+          return null;
+        }
+
+        const bw = bestCandidate.maxX - bestCandidate.minX;
+        const bh = bestCandidate.maxY - bestCandidate.minY;
+        return {
+          cx: (bestCandidate.minX + bestCandidate.maxX) / 2,
+          cy: (bestCandidate.minY + bestCandidate.maxY) / 2,
+          size: Math.max(bw, bh),
+          engine: 'visual'
+        };
+      }
+
+      /**
+       * 自动采样原二维码外沿四周的背景色（消除纯白或浅灰底色差）
+       */
+      function sampleBackgroundColor(posterImg, cx, cy, size) {
+        const w = posterImg.naturalWidth;
+        const h = posterImg.naturalHeight;
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(posterImg, 0, 0);
+
+        const half = size / 2;
+        const margin = Math.max(4, Math.round(size * 0.04));
+        const left = Math.max(0, Math.round(cx - half - margin));
+        const right = Math.min(w - 1, Math.round(cx + half + margin));
+        const top = Math.max(0, Math.round(cy - half - margin));
+        const bottom = Math.min(h - 1, Math.round(cy + half + margin));
+
+        const rs = [], gs = [], bs = [];
+        const steps = 12;
+
+        const pick = (x, y) => {
+          const px = ctx.getImageData(x, y, 1, 1).data;
+          const lum = px[0] * 0.299 + px[1] * 0.587 + px[2] * 0.114;
+          // 忽略可能紧挨着的深色文字像素，仅采样亮色背景
+          if (lum > 200) {
+            rs.push(px[0]);
+            gs.push(px[1]);
+            bs.push(px[2]);
+          }
+        };
+
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps;
+          const x = Math.round(left + (right - left) * t);
+          const y = Math.round(top + (bottom - top) * t);
+          pick(x, top);
+          pick(x, bottom);
+          pick(left, y);
+          pick(right, y);
+        }
+
+        if (rs.length < 6) {
+          return '#FFFFFF';
+        }
+
+        rs.sort((a, b) => a - b);
+        gs.sort((a, b) => a - b);
+        bs.sort((a, b) => a - b);
+        const mid = Math.floor(rs.length / 2);
+        const r = rs[mid], g = gs[mid], b = bs[mid];
+
+        // 接近纯白时直接归一化为纯白，避免出现肉眼可见的微灰补丁框
+        if (r >= 246 && g >= 246 && b >= 246) {
+          return '#FFFFFF';
+        }
+        return `rgb(${r}, ${g}, ${b})`;
+      }
+
+      // =========================================================================
+      // 四、无损画质合成与实时预览渲染
+      // =========================================================================
+
+      /**
+       * 在原分辨率离屏 Canvas 上完成无痕擦除与等比居中合成
+       * @param {boolean} fastPreview 滑块拖动中启用极速 JPEG 预览，松手后自动切换无损 PNG
+       */
+      function renderComposite(fastPreview = false) {
+        if (!state.posterImg || !state.activeQrCanvas || !state.detected) return;
+
+        const poster = state.posterImg;
+        const origW = poster.naturalWidth;
+        const origH = poster.naturalHeight;
+
+        if (!state.outputCanvas) {
+          state.outputCanvas = document.createElement('canvas');
+        }
+        const canvas = state.outputCanvas;
+        if (canvas.width !== origW || canvas.height !== origH) {
+          canvas.width = origW;
+          canvas.height = origH;
+        }
+
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        // 1. 绘制原始高清海报
+        ctx.drawImage(poster, 0, 0, origW, origH);
+
+        // 2. 计算擦除区域（基于自动检测位置 + 外扩 pad，彻底覆盖原码与压缩灰边）
+        const det = state.detected;
+        const pad = state.adjust.padPx;
+        const eraseX = det.cx - det.size / 2 - pad;
+        const eraseY = det.cy - det.size / 2 - pad;
+        const eraseSize = det.size + pad * 2;
+
+        ctx.fillStyle = det.bgColor || '#FFFFFF';
+        ctx.fillRect(eraseX, eraseY, eraseSize, eraseSize);
+
+        // 若用户进行了位移微调，也确保新位置底色干净（保持白底无杂色）
+        const finalCx = det.cx + state.adjust.dx;
+        const finalCy = det.cy + state.adjust.dy;
+        const targetSize = det.size * (state.adjust.scalePct / 100);
+
+        // 3. 将固定二维码等比居中贴回目标区域
+        const qr = state.activeQrCanvas;
+        const qrRatio = Math.min(targetSize / qr.width, targetSize / qr.height);
+        const drawW = qr.width * qrRatio;
+        const drawH = qr.height * qrRatio;
+        const drawX = finalCx - drawW / 2;
+        const drawY = finalCy - drawH / 2;
+
+        ctx.drawImage(qr, drawX, drawY, drawW, drawH);
+
+        // 4. 渲染到真实 <img> 标签（DataURL 兼容 iOS Safari 与微信直接长按保存）
+        if (fastPreview) {
+          el.resultImage.src = canvas.toDataURL('image/jpeg', 0.88);
+          clearTimeout(state.hdSyncTimer);
+          state.hdSyncTimer = setTimeout(() => {
+            el.resultImage.src = canvas.toDataURL('image/png');
+          }, 220);
+        } else {
+          clearTimeout(state.hdSyncTimer);
+          el.resultImage.src = canvas.toDataURL('image/png');
+        }
+      }
+
+      /**
+       * 更新顶部识别状态提示条与微调滑块范围
+       */
+      function updateResultStatusUI() {
+        const det = state.detected;
+        const poster = state.posterImg;
+        el.resolutionBadge.textContent = `${poster.naturalWidth} × ${poster.naturalHeight}`;
+
+        if (det.engine === 'jsQR') {
+          el.statusBanner.className = 'mb-3.5 flex items-center justify-between gap-2 rounded-xl bg-iosGreen/[0.10] px-3.5 py-2.5 text-[13px] font-medium text-[#1D7A34]';
+          el.statusDot.className = 'h-2 w-2 shrink-0 rounded-full bg-iosGreen';
+          el.statusText.textContent = '已精准识别二维码并完成替换';
+        } else if (det.engine === 'visual') {
+          el.statusBanner.className = 'mb-3.5 flex items-center justify-between gap-2 rounded-xl bg-iosBlue/[0.09] px-3.5 py-2.5 text-[13px] font-medium text-[#005BB5]';
+          el.statusDot.className = 'h-2 w-2 shrink-0 rounded-full bg-iosBlue';
+          el.statusText.textContent = '已通过智能视觉定位完成替换';
+        } else {
+          el.statusBanner.className = 'mb-3.5 flex items-center justify-between gap-2 rounded-xl bg-[#FF9500]/12 px-3.5 py-2.5 text-[13px] font-medium text-[#B25000]';
+          el.statusDot.className = 'h-2 w-2 shrink-0 rounded-full bg-[#FF9500]';
+          el.statusText.textContent = '未检测到清晰二维码，已按默认位置贴合，可在下方微调';
+        }
+
+        // 根据原图分辨率动态设置水平/垂直微调范围（±25%）
+        const rangeX = Math.max(120, Math.round(poster.naturalWidth * 0.25));
+        const rangeY = Math.max(120, Math.round(poster.naturalHeight * 0.25));
+        el.sliderDx.min = -rangeX;
+        el.sliderDx.max = rangeX;
+        el.sliderDy.min = -rangeY;
+        el.sliderDy.max = rangeY;
+
+        syncAdjustSlidersUI();
+      }
+
+      /**
+       * 同步微调滑块与数值标签
+       */
+      function syncAdjustSlidersUI() {
+        el.sliderDx.value = state.adjust.dx;
+        el.sliderDy.value = state.adjust.dy;
+        el.sliderScale.value = state.adjust.scalePct;
+        el.sliderPad.value = state.adjust.padPx;
+
+        el.valDx.textContent = `${state.adjust.dx > 0 ? '+' : ''}${state.adjust.dx} px`;
+        el.valDy.textContent = `${state.adjust.dy > 0 ? '+' : ''}${state.adjust.dy} px`;
+        el.valScale.textContent = `${state.adjust.scalePct}%`;
+        el.valPad.textContent = `${state.adjust.padPx} px`;
+      }
+
+      /**
+       * 重置微调参数为自动定位默认值
+       */
+      function resetAdjustments(shouldRender = true) {
+        state.adjust.dx = 0;
+        state.adjust.dy = 0;
+        state.adjust.scalePct = 100;
+        state.adjust.padPx = 6;
+        syncAdjustSlidersUI();
+        if (shouldRender && state.posterImg && state.detected) {
+          renderComposite(false);
+        }
+      }
+
+      /**
+       * 处理用户导入的今日海报：双引擎定位 -> 自动合成 -> 展示结果
+       */
+      async function handlePosterFile(file) {
+        if (!file || !file.type.startsWith('image/')) {
+          showToast('请选择有效的海报图片', 'warn');
+          return;
+        }
+        if (!state.activeQrCanvas) {
+          showToast('请先上传你的固定二维码（仅需设置一次）', 'warn');
+          el.qrUnsetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+
+        // 切换至处理中状态
+        el.posterUploadSection.classList.add('hidden');
+        el.resultSection.classList.add('hidden');
+        el.processingSection.classList.remove('hidden');
+
+        try {
+          const dataUrl = await readFileAsDataUrl(file);
+          const posterImg = await loadImage(dataUrl);
+          state.posterImg = posterImg;
+
+          // 让出一帧确保加载动画先渲染出来
+          await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 30)));
+
+          // 引擎一：jsQR 精准解码定位
+          let detected = detectWithJsQR(posterImg);
+
+          // 引擎二：兜底视觉轮廓与连通域分析
+          if (!detected) {
+            detected = detectWithVisualFallback(posterImg);
+          }
+
+          // 极端无码海报：按常见健康海报底部居中位置兜底，并自动展开微调面板
+          if (!detected) {
+            detected = {
+              cx: posterImg.naturalWidth * 0.5,
+              cy: posterImg.naturalHeight * 0.82,
+              size: posterImg.naturalWidth * 0.22,
+              engine: 'default'
+            };
+          }
+
+          // 自动采样二维码外沿四周背景色
+          detected.bgColor = sampleBackgroundColor(posterImg, detected.cx, detected.cy, detected.size);
+          state.detected = detected;
+
+          // 重置微调参数并输出无损合成结果
+          resetAdjustments(false);
+          updateResultStatusUI();
+          renderComposite(false);
+
+          // 若命中默认兜底位置，贴心自动展开微调面板
+          if (detected.engine === 'default' && !state.isAdjustOpen) {
+            setAdjustPanelOpen(true);
+          }
+
+          el.processingSection.classList.add('hidden');
+          el.resultSection.classList.remove('hidden');
+
+          if (detected.engine === 'jsQR') {
+            showToast('已精准识别二维码并完成替换', 'success');
+          } else if (detected.engine === 'visual') {
+            showToast('已通过视觉定位完成替换', 'success');
+          } else {
+            showToast('已按默认位置放置，可微调位置与大小', 'warn');
+          }
+        } catch (err) {
+          console.error('处理海报失败:', err);
+          el.processingSection.classList.add('hidden');
+          if (state.detected) {
+            el.resultSection.classList.remove('hidden');
+          } else {
+            el.posterUploadSection.classList.remove('hidden');
+          }
+          showToast('图片处理失败，请重试', 'warn');
+        }
+      }
+
+      // =========================================================================
+      // 五、便捷保存与原生分享（Web Share API + 下载降级）
+      // =========================================================================
+
+      /**
+       * 生成带日期的文件名，如 今日海报_20261124.png
+       */
+      function buildDownloadFilename() {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        return `今日海报_${y}${m}${d}.png`;
+      }
+
+      /**
+       * 触发浏览器文件下载（不支持 Web Share API 时的降级方案）
+       */
+      function triggerBlobDownload(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+      }
+
+      /**
+       * 主按钮「保存 / 分享图片」点击处理
+       * 优先调用移动端原生 Web Share API（iPhone 可直接存相册或发微信）
+       */
+      async function handleSaveOrShare() {
+        if (!state.outputCanvas) return;
+
+        const filename = buildDownloadFilename();
+
+        try {
+          const blob = await new Promise((resolve, reject) => {
+            state.outputCanvas.toBlob((b) => {
+              if (b) resolve(b);
+              else reject(new Error('导出图片失败'));
+            }, 'image/png');
+          });
+
+          const file = new File([blob], filename, { type: 'image/png' });
+
+          // 优先尝试原生系统分享菜单（支持 iOS Safari / Android Chrome 等）
+          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+              await navigator.share({
+                files: [file],
+                title: '每日健康海报'
+              });
+              return;
+            } catch (shareErr) {
+              // 用户主动取消分享面板时不报错也不重复下载
+              if (shareErr && shareErr.name === 'AbortError') {
+                return;
+              }
+              console.warn('原生分享失败，降级为下载:', shareErr);
+            }
+          }
+
+          // 降级为直接下载 PNG 图片
+          triggerBlobDownload(blob, filename);
+          showToast('已开始保存图片，也可长按上方图片保存', 'success');
+        } catch (err) {
+          console.error('保存失败:', err);
+          showToast('保存受限，请直接长按上方图片保存', 'warn');
+        }
+      }
+
+      // =========================================================================
+      // 六、微调面板折叠与滑块交互
+      // =========================================================================
+
+      function setAdjustPanelOpen(open) {
+        state.isAdjustOpen = open;
+        el.toggleAdjustBtn.setAttribute('aria-expanded', String(open));
+        if (open) {
+          el.adjustPanel.classList.remove('hidden');
+          el.adjustChevron.classList.add('rotate-180');
+        } else {
+          el.adjustPanel.classList.add('hidden');
+          el.adjustChevron.classList.remove('rotate-180');
+        }
+      }
+
+      function scheduleSliderRender() {
+        syncAdjustSlidersUI();
+        if (state.renderRafId) {
+          cancelAnimationFrame(state.renderRafId);
+        }
+        state.renderRafId = requestAnimationFrame(() => {
+          renderComposite(true);
+        });
+      }
+
+      // =========================================================================
+      // 七、事件绑定（点击、拖拽、Ctrl+V 粘贴）与初始化
+      // =========================================================================
+
+      function bindEvents() {
+        // 固定二维码上传与更换
+        el.uploadQrAreaBtn.addEventListener('click', () => el.fixedQrInput.click());
+        el.changeQrBtn.addEventListener('click', () => el.fixedQrInput.click());
+        el.fixedQrInput.addEventListener('change', (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (file) handleFixedQrFile(file);
+          e.target.value = ''; // 清空以允许重复选同一张图
+        });
+
+        // 裁剪白边开关（未设置卡片开关 & 已设置紧凑条按钮）
+        el.autoCropToggleUnset.addEventListener('click', toggleAutoCrop);
+        el.compactCropBtn.addEventListener('click', toggleAutoCrop);
+
+        // 选择今日海报 & 换下一张
+        const openPosterPicker = () => {
+          if (!state.activeQrCanvas) {
+            showToast('请先上传你的固定二维码（仅需设置一次）', 'warn');
+            el.qrUnsetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+          }
+          el.posterInput.click();
+        };
+        el.selectPosterBtn.addEventListener('click', openPosterPicker);
+        el.nextPosterBtn.addEventListener('click', openPosterPicker);
+        el.posterInput.addEventListener('change', (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (file) handlePosterFile(file);
+          e.target.value = '';
+        });
+
+        // 保存 / 分享图片
+        el.saveShareBtn.addEventListener('click', handleSaveOrShare);
+
+        // 折叠 / 展开微调面板
+        el.toggleAdjustBtn.addEventListener('click', () => {
+          setAdjustPanelOpen(!state.isAdjustOpen);
+        });
+
+        // 微调滑块实时响应
+        el.sliderDx.addEventListener('input', (e) => {
+          state.adjust.dx = Number(e.target.value);
+          scheduleSliderRender();
+        });
+        el.sliderDy.addEventListener('input', (e) => {
+          state.adjust.dy = Number(e.target.value);
+          scheduleSliderRender();
+        });
+        el.sliderScale.addEventListener('input', (e) => {
+          state.adjust.scalePct = Number(e.target.value);
+          scheduleSliderRender();
+        });
+        el.sliderPad.addEventListener('input', (e) => {
+          state.adjust.padPx = Number(e.target.value);
+          scheduleSliderRender();
+        });
+
+        // 恢复自动定位
+        el.resetAdjustBtn.addEventListener('click', () => {
+          resetAdjustments(true);
+          showToast('已恢复自动定位参数', 'info');
+        });
+
+        // 电脑端全局拖拽支持
+        let dragCounter = 0;
+        window.addEventListener('dragenter', (e) => {
+          e.preventDefault();
+          dragCounter++;
+          el.dragOverlayHint.textContent = state.activeQrCanvas
+            ? '松开后将自动识别并替换海报底部二维码'
+            : '松开后将设为你的固定二维码';
+          el.dragOverlay.classList.remove('hidden');
+          el.dragOverlay.classList.add('flex');
+        });
+        window.addEventListener('dragover', (e) => {
+          e.preventDefault();
+        });
+        window.addEventListener('dragleave', (e) => {
+          e.preventDefault();
+          dragCounter--;
+          if (dragCounter <= 0) {
+            dragCounter = 0;
+            el.dragOverlay.classList.add('hidden');
+            el.dragOverlay.classList.remove('flex');
+          }
+        });
+        window.addEventListener('drop', (e) => {
+          e.preventDefault();
+          dragCounter = 0;
+          el.dragOverlay.classList.add('hidden');
+          el.dragOverlay.classList.remove('flex');
+          const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+          if (!file || !file.type.startsWith('image/')) return;
+          if (!state.activeQrCanvas) {
+            handleFixedQrFile(file);
+          } else {
+            handlePosterFile(file);
+          }
+        });
+
+        // 电脑端 Ctrl+V / Cmd+V 粘贴图片支持
+        window.addEventListener('paste', (e) => {
+          const items = e.clipboardData && e.clipboardData.items;
+          if (!items) return;
+          for (const item of items) {
+            if (item.type && item.type.startsWith('image/')) {
+              const file = item.getAsFile();
+              if (file) {
+                e.preventDefault();
+                if (!state.activeQrCanvas) {
+                  handleFixedQrFile(file);
+                } else {
+                  handlePosterFile(file);
+                }
+                break;
+              }
+            }
+          }
+        });
+      }
+
+      /**
+       * 应用启动：从 localStorage 恢复固定二维码与偏好设置
+       */
+      async function init() {
+        bindEvents();
+        try {
+          const savedCrop = localStorage.getItem(STORAGE_KEY_CROP);
+          if (savedCrop !== null) {
+            state.autoCrop = savedCrop === '1';
+          }
+          const savedQr = localStorage.getItem(STORAGE_KEY_QR);
+          if (savedQr) {
+            state.fixedQrRawDataUrl = savedQr;
+            await rebuildActiveQr();
+          } else {
+            updateFixedQrUI();
+          }
+        } catch (err) {
+          console.warn('读取本地缓存失败:', err);
+          updateFixedQrUI();
+        }
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>
